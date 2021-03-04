@@ -1,5 +1,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE LambdaCase             #-}
@@ -139,19 +140,25 @@ instance SubstVar FcTyVar FcType (FcPAlt a) where
 -- * Target Language SubstVar Instances (Term Substitution)
 -- ------------------------------------------------------------------------------
 
--- | Substitute a term variable for a term in a term
-instance SubstVar FcTmVar (FcTerm a) (FcTerm a) where  
-  substVar x xtm
-    | fcPhase == Opt = \case
+class Eq a => FcTmMarker a where
+  type SubstTy a
+  fcPhase :: a
+  substVarTm :: FcTmVar -> SubstTy a -> FcTerm a -> FcTerm a
+  substVarsTm :: [FcTmVar] -> [SubstTy a] -> FcTerm a -> FcTerm a
+  substVarsTm vs ts x = foldr (\(v',t') -> substVarTm v' t') x (zipExact vs ts)
+instance FcTmMarker Opt where
+  type SubstTy _ = FcTerm Opt
+  fcPhase = Opt
+  substVarTm x xtm = \case
       -- Opt
       FcOptTmVar y
         | x == y         -> xtm
         | otherwise      -> FcOptTmVar y
       FcOptTmPrim tm     -> FcOptTmPrim tm
       FcOptTmAbs ab      -> FcOptTmAbs (substVar x xtm ab)
-      FcOptTmApp tm1 tm2 -> FcOptTmApp (substVar x xtm tm1) (substVar x xtm tm2)
-      FcOptTmTyAbs a tm  -> FcOptTmTyAbs a (substVar x xtm tm)
-      FcOptTmTyApp tm ty -> FcOptTmTyApp (substVar x xtm tm) ty
+      FcOptTmApp tm1 tm2 -> FcOptTmApp (substVarTm x xtm tm1) (substVarTm x xtm tm2)
+      FcOptTmTyAbs a tm  -> FcOptTmTyAbs a (substVarTm x xtm tm)
+      FcOptTmTyApp tm ty -> FcOptTmTyApp (substVarTm x xtm tm) ty
       FcOptTmDataCon dc  -> FcOptTmDataCon dc
       -- Pre
       -- FcPreTmVarApp x ats -> FcPreTmVarApp x ats
@@ -159,14 +166,30 @@ instance SubstVar FcTmVar (FcTerm a) (FcTerm a) where
       -- FcPreTmPApp  op ats -> FcPreTmPApp  op ats
       -- FcPreTmTyAbs as tm -> FcPreTmTyAbs as (substVar x xtm tm)
       -- Univ
-      FcTmLet bind tm  -> FcTmLet (substVar x xtm bind) (substVar x xtm tm)
-      FcTmCase tm alts -> FcTmCase (substVar x xtm tm) (substVar x xtm alts)
+      FcTmLet bind tm  -> FcTmLet (substVar x xtm bind) (substVarTm x xtm tm)
+      FcTmCase tm alts -> FcTmCase (substVarTm x xtm tm) (substVar x xtm alts)
+instance FcTmMarker Pre where
+  type SubstTy _ = FcTmVar
+  fcPhase = Pre
+  substVarTm x y = \case
+      FcPreTmVarApp z ats
+        | x == z    -> FcPreTmVarApp y (substVar x y ats)
+        | otherwise -> FcPreTmVarApp z (substVar x y ats)
+      FcPreTmDCApp dc ats -> FcPreTmDCApp dc (substVar x y ats)
+      FcPreTmPApp  op ats -> FcPreTmPApp  op (substVar x y ats)
+      FcPreTmTyAbs as tm  -> FcPreTmTyAbs as (substVarTm x y tm)
+      FcTmLet bind tm -> FcTmLet (substVar x y bind) (substVarTm x y tm)
+      FcTmCase tm alts -> FcTmCase (substVarTm x y tm) (substVar x y alts)
+
+-- -- | Substitute a term variable for a term in a term
+-- instance FcTmMarker a => SubstVar FcTmVar (FcTerm a) (FcTerm a) where  
+--   substVar = substVar'
 
 -- | Substitute a term variable for a term in a value binding
 instance SubstVar FcTmVar (FcTerm Opt) (FcBind Opt) where
   substVar x xtm (FcOptBind y ty tm)
     | x == y    = error "substFcTmVarInTm: Shadowing (let)"
-    | otherwise = FcOptBind y ty (substVar x xtm tm)
+    | otherwise = FcOptBind y ty (substVarTm x xtm tm)
   -- substVar x xtm (FcPreBind y ty ab)
   --   | x == y    = error "substFcTmVarInTm: Shadowing (let)"
   --   | otherwise = FcPreBind y ty (substVar x xtm ab)
@@ -174,7 +197,7 @@ instance SubstVar FcTmVar (FcTerm Opt) (FcBind Opt) where
 instance SubstVar FcTmVar (FcTerm Opt) (FcAbs Opt) where
   substVar x xtm (FcOptAbs y ty tm)
     | x == y      = error "substFcTmVarInTm: Shadowing (tmabs)"
-    | otherwise   = FcOptAbs y ty (substVar x xtm tm)
+    | otherwise   = FcOptAbs y ty (substVarTm x xtm tm)
   -- substVar x xtm (FcPreAbs ys tys tm)
   --   | x `elem` ys = error "substFcTmVarInTm: Shadowing (letabs)"
   --   | otherwise   = FcPreAbs ys tys (substVar x xtm tm)
@@ -188,24 +211,10 @@ instance SubstVar FcTmVar (FcTerm Opt) (FcAAlt Opt) where
   substVar x xtm (FcAAlt (FcConPat dc xs) tm)
     | not (distinct xs) = error "substFcTmVarInAlt: Variables in pattern are not distinct" -- extra redundancy for safety
     | any (==x) xs      = error "substFcTmVarInAlt: Shadowing"
-    | otherwise         = FcAAlt (FcConPat dc xs) (substVar x xtm tm)    
+    | otherwise         = FcAAlt (FcConPat dc xs) (substVarTm x xtm tm)    
 
 instance SubstVar FcTmVar (FcTerm Opt) (FcPAlt Opt) where
-  substVar x xtm (FcPAlt lit tm) = FcPAlt lit (substVar x xtm tm)
-
--- | Substitute one variable for another in a term (preprocessed syntax disallows variables as terms)
-instance SubstVar FcTmVar FcTmVar (FcTerm Pre) where
-  substVar x y 
-    | fcPhase == Pre = \case
-      FcPreTmVarApp z ats 
-        | x == z    -> FcPreTmVarApp y (substVar x y ats)
-        | otherwise -> FcPreTmVarApp z (substVar x y ats)
-      FcPreTmDCApp dc ats -> FcPreTmDCApp dc (substVar x y ats)
-      FcPreTmPApp  op ats -> FcPreTmPApp  op (substVar x y ats)
-      FcPreTmTyAbs as tm  -> FcPreTmTyAbs as (substVar x y tm)
-      FcTmLet bind tm -> FcTmLet (substVar x y bind) (substVar x y tm)
-      FcTmCase tm alts -> FcTmCase (substVar x y tm) (substVar x y alts)
-    | otherwise = undefined
+  substVar x xtm (FcPAlt lit tm) = FcPAlt lit (substVarTm x xtm tm)
 
 instance SubstVar FcTmVar FcTmVar FcAtom where
   substVar x y (FcAtVar z) 
@@ -220,7 +229,7 @@ instance SubstVar FcTmVar FcTmVar (FcBind Pre) where
 instance SubstVar FcTmVar FcTmVar (FcAbs Pre) where
   substVar x y (FcPreAbs zs tys tm)
     | x `elem` zs = error "substFcTmVarInTm: Shadowing (letabs)"
-    | otherwise   = FcPreAbs zs tys (substVar x y tm)
+    | otherwise   = FcPreAbs zs tys (substVarTm x y tm)
 
 instance SubstVar FcTmVar FcTmVar (FcAlts Pre) where
   substVar x y (FcAAlts alts) = FcAAlts (substVar x y alts)
@@ -230,10 +239,10 @@ instance SubstVar FcTmVar FcTmVar (FcAAlt Pre) where
   substVar x y (FcAAlt (FcConPat dc xs) tm)
     | not (distinct xs) = error "substFcTmVarInAlt: Variables in pattern are not distinct" -- extra redundancy for safety
     | any (==x) xs      = error "substFcTmVarInAlt: Shadowing"
-    | otherwise         = FcAAlt (FcConPat dc xs) (substVar x y tm)
+    | otherwise         = FcAAlt (FcConPat dc xs) (substVarTm x y tm)
 
 instance SubstVar FcTmVar FcTmVar (FcPAlt Pre) where
-  substVar x y (FcPAlt lit tm) = FcPAlt lit (substVar x y tm)
+  substVar x y (FcPAlt lit tm) = FcPAlt lit (substVarTm x y tm)
 
 -- ------------------------------------------------------------------------------
 
@@ -454,12 +463,12 @@ instance (FcTmMarker a) => FreshenLclBndrs (FcTerm a) where
   -- Univ
   freshenLclBndrs (FcTmLet (FcOptBind x ty tm1) tm2) = freshFcTmVar >>= \y ->
     FcTmLet <$> (FcOptBind y <$> freshenLclBndrs ty
-              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm1))
-              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm2)
+              <*> freshenLclBndrs (substVarTm x (FcOptTmVar y) tm1))
+              <*> freshenLclBndrs (substVarTm x (FcOptTmVar y) tm2)
   freshenLclBndrs (FcTmLet (FcPreBind x ty ab) tm)   = freshFcTmVar >>= \y ->
     FcTmLet <$> (FcPreBind y <$> freshenLclBndrs ty
               <*> freshenLclBndrs (substVar x y ab))
-              <*> freshenLclBndrs (substVar x y tm) 
+              <*> freshenLclBndrs (substVarTm x y tm) 
   freshenLclBndrs (FcTmCase tm alts) = FcTmCase <$> freshenLclBndrs tm <*> freshenLclBndrs alts
 
 -- Note: FreshenLclBndrs instance for FcBind is absorbed into Let
@@ -467,9 +476,9 @@ instance (FcTmMarker a) => FreshenLclBndrs (FcTerm a) where
 -- | Freshen the (type + term) binders of a System F lambda abstraction
 instance (FcTmMarker a) => FreshenLclBndrs (FcAbs a) where
   freshenLclBndrs (FcOptAbs x  ty  tm) = freshFcTmVar >>= \y ->
-    FcOptAbs y  <$> freshenLclBndrs ty  <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm)
+    FcOptAbs y  <$> freshenLclBndrs ty  <*> freshenLclBndrs (substVarTm x (FcOptTmVar y) tm)
   freshenLclBndrs (FcPreAbs xs tys tm) = replicateM (length xs) freshFcTmVar >>= \ys ->
-    FcPreAbs ys <$> freshenLclBndrs tys <*> freshenLclBndrs (substVar xs ys tm)
+    FcPreAbs ys <$> freshenLclBndrs tys <*> freshenLclBndrs (substVarsTm xs ys tm)
 
 instance (FcTmMarker a) => FreshenLclBndrs (FcAlts a) where
   freshenLclBndrs (FcAAlts alts) = FcAAlts <$> mapM freshenLclBndrs alts
@@ -479,11 +488,11 @@ instance (FcTmMarker a) => FreshenLclBndrs (FcAlts a) where
 instance FcTmMarker a => FreshenLclBndrs (FcAAlt a) where
   freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Opt = do {
       ys  <- mapM (\_ -> freshFcTmVar) xs;
-      tm' <- freshenLclBndrs $ substVar xs (map FcOptTmVar ys) tm;
+      tm' <- freshenLclBndrs $ substVarsTm xs (map FcOptTmVar ys) tm;
       return (FcAAlt (FcConPat dc ys) tm')}
   freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Pre = do {
       ys <- replicateM (length xs) freshFcTmVar;
-      tm' <- freshenLclBndrs $ substVar xs ys tm;
+      tm' <- freshenLclBndrs $ substVarsTm xs ys tm;
       return (FcAAlt (FcConPat dc ys) tm')}
 
 instance (FcTmMarker a) => FreshenLclBndrs (FcPAlt a) where

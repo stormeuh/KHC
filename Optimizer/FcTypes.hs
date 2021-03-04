@@ -210,13 +210,6 @@ data Opt = Opt
 data Pre = Pre
   deriving Eq
 
-class Eq a => FcTmMarker a where
-  fcPhase :: a
-instance FcTmMarker Opt where
-  fcPhase = Opt
-instance FcTmMarker Pre where
-  fcPhase = Pre
-
 data FcTerm a where
   -- Optimizer language concepts
   -- ^ Variable
@@ -294,7 +287,7 @@ instance ContainsFreeTyVars FcType FcTyVar where
   ftyvsOf (FcTyApp ty1 ty2) = ftyvsOf ty1 ++ ftyvsOf ty2
   ftyvsOf (FcTyCon _)      = []
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcTerm a) FcTyVar where
+instance ContainsFreeTyVars (FcTerm a) FcTyVar where
   -- Opt
   ftyvsOf (FcOptTmVar  _)        = []
   ftyvsOf (FcOptTmPrim _)        = []
@@ -312,11 +305,11 @@ instance (FcTmMarker a) => ContainsFreeTyVars (FcTerm a) FcTyVar where
   ftyvsOf (FcTmLet bd tm)       = ftyvsOf bd ++ ftyvsOf tm
   ftyvsOf (FcTmCase tm alts)    = ftyvsOf tm ++ ftyvsOf alts
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcBind a) FcTyVar where
+instance ContainsFreeTyVars (FcBind a) FcTyVar where
   ftyvsOf (FcOptBind _ a tm) = ftyvsOf a ++ ftyvsOf tm
   ftyvsOf (FcPreBind _ a ab) = ftyvsOf a ++ ftyvsOf ab
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAbs a) FcTyVar where
+instance ContainsFreeTyVars (FcAbs a) FcTyVar where
   ftyvsOf (FcOptAbs _ a  tm) = ftyvsOf a  ++ ftyvsOf tm
   ftyvsOf (FcPreAbs _ as tm) = ftyvsOf as ++ ftyvsOf tm
 
@@ -325,14 +318,14 @@ instance ContainsFreeTyVars FcAtom FcTyVar where
   ftyvsOf FcAtLit {} = []
   ftyvsOf (FcAtType  ty) = ftyvsOf ty
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAlts a) FcTyVar where
+instance ContainsFreeTyVars (FcAlts a) FcTyVar where
   ftyvsOf (FcAAlts alts) = ftyvsOf alts
   ftyvsOf (FcPAlts alts) = ftyvsOf alts
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAAlt a) FcTyVar where
+instance ContainsFreeTyVars (FcAAlt a) FcTyVar where
   ftyvsOf (FcAAlt _ tm) = ftyvsOf tm
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcPAlt a) FcTyVar where
+instance ContainsFreeTyVars (FcPAlt a) FcTyVar where
   ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
 
 -- * Pretty printing
@@ -380,7 +373,7 @@ instance PrettyPrint FcDataCon where
   needsParens _ = False
 
 -- | Pretty print terms
-instance (FcTmMarker a) => PrettyPrint (FcTerm a) where
+instance PrettyPrint (FcTerm a) where
   ppr (FcOptTmVar x)            = ppr x
   ppr (FcOptTmPrim ptm)         = ppr ptm   
   ppr (FcOptTmAbs b)            = ppr b
@@ -420,13 +413,13 @@ instance (FcTmMarker a) => PrettyPrint (FcTerm a) where
   needsParens FcTmCase        {} = True
 
 -- | Pretty print variable bindings
-instance (FcTmMarker a) => PrettyPrint (FcBind a) where
+instance PrettyPrint (FcBind a) where
   ppr (FcOptBind x ty tm) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr tm))
   ppr (FcPreBind x ty ab) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr ab))
   needsParens _ = False
 
 -- | Pretty print lambda abstractions
-instance (FcTmMarker a) => PrettyPrint (FcAbs a) where
+instance PrettyPrint (FcAbs a) where
   ppr (FcOptAbs x  ty  tm) = hang (backslash <> parens (ppr x <+> dcolon <+> ppr ty) <> dot) 2 (ppr tm)
   ppr (FcPreAbs xs tys tm) = hang 
                                (backslash
@@ -445,18 +438,18 @@ instance PrettyPrint FcAtom where
   needsParens _ = False
 
 -- | Pretty print alternatives
-instance (FcTmMarker a) => PrettyPrint (FcAlts a) where
+instance PrettyPrint (FcAlts a) where
   ppr (FcAAlts alts) = vcat $ map ppr alts
   ppr (FcPAlts alts) = vcat $ map ppr alts
   needsParens _      = False 
 
 -- | Pretty print algebraic alts
-instance (FcTmMarker a) => PrettyPrint (FcAAlt a) where
+instance PrettyPrint (FcAAlt a) where
   ppr (FcAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
   needsParens _       = True
 
 -- | Pretty print primitive alts
-instance (FcTmMarker a) => PrettyPrint (FcPAlt a) where
+instance PrettyPrint (FcPAlt a) where
   ppr (FcPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
   needsParens _       = True
 
@@ -479,7 +472,7 @@ instance PrettyPrint FcDataDecl where
   needsParens _ = False
 
 -- | Pretty print programs
-instance (FcTmMarker a) => PrettyPrint (FcProgram a) where
+instance PrettyPrint (FcProgram a) where
   ppr (FcPgmDataDecl datadecl pgm) = ppr datadecl $$ ppr pgm
   ppr (FcPgmValDecl  valbind  pgm) 
     = colorDoc yellow (text "let") <+> ppr valbind
