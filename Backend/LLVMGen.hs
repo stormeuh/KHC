@@ -23,9 +23,9 @@ import LLVM.AST
 import LLVM.AST.Instruction
 import qualified LLVM.AST as AST
 
-import Control.Monad.State
-import Control.Monad.Except (ExceptT)
-import Control.Monad.Writer (WriterT)
+import Control.Monad.State 
+import Control.Monad.Except (ExceptT, runExceptT)
+import Control.Monad.Writer (WriterT, runWriterT)
 import qualified Data.Map as Map
 import qualified Data.ByteString.UTF8 as BU
 import qualified Data.ByteString.Short as BS
@@ -37,6 +37,9 @@ type LGenM = UniqueSupplyT (ExceptT String (WriterT Trace LLVM))
 
 runLLVM :: AST.Module -> LLVM a -> AST.Module
 runLLVM mod (LLVM m) = execState m mod
+
+runLLVM' :: AST.Module -> LLVM a -> (a, AST.Module)
+runLLVM' mod (LLVM m) = runState m mod
 
 -- | Create module with the given definition, and without definitions
 emptyModule :: String -> AST.Module
@@ -62,13 +65,26 @@ data BlockState
   }
 
 -- | Translate a program from STG to LLVM
+-- Gert-Jan : Why do you provide an empty state? This is pretty weird
 tlSProg :: SProg -> LGenM ()
 tlSProg pgm = throwUnimplErrorM
 
+llvmGenModule' :: String
+  -> UniqueSupply
+  -> SProg
+  -> ((Either String ((), UniqueSupply), Trace), Module)
+llvmGenModule' name us pgm = runLLVM' (emptyModule name)
+                           $ runWriterT
+                           $ runExceptT
+                           $ flip runUniqueSupplyT us
+                           $ tlSProg pgm
+
 -- | Generate an LLVM module from an STG program
 llvmGenModule :: String -> UniqueSupply -> SProg -> Either String (AST.Module, Trace)
-llvmGenModule name us pgm = runLLVM (emptyModule name)
-                          $ runWriterT
-                          $ runExceptT
-                          $ flip runUniqueSupplyT us
-                          $ tlSProg pgm
+llvmGenModule name us pgm =
+  let ((eit, tra), mo) = llvmGenModule' name us pgm 
+  in go mo tra <$> eit
+  where 
+    -- Gert-Jan: Are you sure this is what you want? Yes, it typechecks, but it's quite strange.
+    go :: AST.Module -> Trace -> ((), UniqueSupply) -> (AST.Module , Trace)
+    go mo tra _ = (mo, tra)
