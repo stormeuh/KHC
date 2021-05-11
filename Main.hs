@@ -7,6 +7,7 @@ import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
 import Optimizer.FcTypeChecker  (fcOptElaborate, fcResElaborate)
 import Optimizer.FcPreprocessor (bindFreeOptTyVars, mergeAppAbsOptProg)
+import Backend.LLVMGen
 -- import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
