@@ -25,21 +25,21 @@ import qualified LLVM.AST as AST
 
 import Control.Monad.State 
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.Writer (WriterT, runWriterT)
+import Control.Monad.Writer (Writer, runWriter)
 import qualified Data.Map as Map
 import qualified Data.ByteString.UTF8 as BU
 import qualified Data.ByteString.Short as BS
 
-newtype LLVM a = LLVM (State AST.Module a)
-  deriving (Functor, Applicative, Monad, MonadState AST.Module)
+-- newtype LLVM a = LLVM (State AST.Module a)
+--   deriving (Functor, Applicative, Monad, MonadState AST.Module)
 
-type LGenM = UniqueSupplyT (ExceptT String (WriterT Trace LLVM))
+type LGenM = UniqueSupplyT (StateT AST.Module (ExceptT String (Writer Trace)))
 
-runLLVM :: AST.Module -> LLVM a -> AST.Module
-runLLVM mod (LLVM m) = execState m mod
+-- runLLVM :: AST.Module -> LLVM a -> AST.Module
+-- runLLVM mod (LLVM m) = execState m mod
 
-runLLVM' :: AST.Module -> LLVM a -> (a, AST.Module)
-runLLVM' mod (LLVM m) = runState m mod
+-- runLLVM' :: AST.Module -> LLVM a -> (a, AST.Module)
+-- runLLVM' mod (LLVM m) = runState m mod
 
 -- | Create module with the given definition, and without definitions
 emptyModule :: String -> AST.Module
@@ -72,19 +72,19 @@ tlSProg pgm = throwUnimplErrorM
 llvmGenModule' :: String
   -> UniqueSupply
   -> SProg
-  -> ((Either String ((), UniqueSupply), Trace), Module)
-llvmGenModule' name us pgm = runLLVM' (emptyModule name)
-                           $ runWriterT
+  -> (Either String (AST.Module, UniqueSupply), Trace)
+llvmGenModule' name us pgm = runWriter
                            $ runExceptT
+                           $ execStateT (emptyModule name)
                            $ flip runUniqueSupplyT us
                            $ tlSProg pgm
 
--- | Generate an LLVM module from an STG program
-llvmGenModule :: String -> UniqueSupply -> SProg -> Either String (AST.Module, Trace)
-llvmGenModule name us pgm =
-  let ((eit, tra), mo) = llvmGenModule' name us pgm 
-  in go mo tra <$> eit
-  where 
-    -- Gert-Jan: Are you sure this is what you want? Yes, it typechecks, but it's quite strange.
-    go :: AST.Module -> Trace -> ((), UniqueSupply) -> (AST.Module , Trace)
-    go mo tra _ = (mo, tra)
+-- -- | Generate an LLVM module from an STG program
+-- llvmGenModule :: String -> UniqueSupply -> SProg -> Either String ((AST.Module, UniqueSupply), Trace)
+-- llvmGenModule name us pgm =
+--   let ((eit, tra), mo) = llvmGenModule' name us pgm 
+--   in go mo tra <$> eit
+--   where 
+--     -- Gert-Jan: Are you sure this is what you want? Yes, it typechecks, but it's quite strange.
+--     go :: AST.Module -> Trace -> ((), UniqueSupply) -> (AST.Module , Trace)
+--     go mo tra _ = (mo, tra)
