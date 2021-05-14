@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
 
 module Main (main, runTest) where
 
@@ -7,11 +8,14 @@ import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
 import Optimizer.FcTypeChecker  (fcOptElaborate, fcResElaborate)
 import Optimizer.FcPreprocessor (bindFreeOptTyVars, mergeAppAbsOptProg)
-import Backend.LLVMGen
+import Backend.LLVMGen (llvmGenModule)
 -- import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
 import Utils.PrettyPrint
+
+import LLVM.Pretty (ppllvm)
+import qualified Data.Text.Lazy.IO as T
 
 import System.Environment (getArgs)
 
@@ -57,6 +61,12 @@ runTest file = do
                       putStrLn $ renderWithColor $ ppr fc_res_ty
                       putStrLn "------------------------------- STG Program -------------------------------"
                       putStrLn $ renderWithColor $ ppr stg_pgm
+                      us_llvm <- newUniqueSupply 'l'
+                      let mod_name = take (length file - 3) file
+                      case llvmGenModule mod_name us_llvm stg_pgm of
+                        (Left err,_) -> throwMainError "LLVM generator" err
+                        (Right mod, _trace) -> T.putStrLn $ ppllvm mod
+
                   -- let res = fcEvaluate us3 fc_pgm
                   -- putStrLn "-------------------------- System F Result --------------------------------"
                   -- putStrLn $ renderWithColor $ ppr res
